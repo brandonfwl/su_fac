@@ -1,0 +1,447 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Python Eclypse REST API"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import elasticsearch\n",
+    "import requests\n",
+    "import base64\n",
+    "from requests.auth import HTTPBasicAuth\n",
+    "from elasticsearch import Elasticsearch \n",
+    "from datetime import date\n",
+    "from datetime import datetime\n",
+    "import time\n",
+    "import json"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "<h3>Define a few variables that we will need to call laster.</h3>"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "endpoint = \"https://10.1.101.14\"\n",
+    "api_path = \"/api/rest/v1/protocols/bacnet/local/objects/\"\n",
+    "read_prop_mult = \"read-property-multiple\"\n",
+    "eclypse_http_port = \":8080\"\n",
+    "headers = {'Authorization': 'Basic c3VuYmVsdEFkbWluOlN1bmIzbHRDb250cm9sNSE='}\n",
+    "building = \"San Jose City Hall\"\n",
+    "equip = \"equip.\"\n",
+    "timestamp = datetime.now()\n",
+    "timestamp = timestamp.isoformat()\n",
+    "equip_ip = \"10.1.101.14\"\n",
+    "today = date.today()\n",
+    "d1 = today.strftime(\"%d_%m_%Y\")\n",
+    "elastic_index_name = \"equip_\" + d1\n",
+    "elastic_url = \"http://172.31.36.135:9200\""
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "params ={\n",
+    "    \"encode\": \"text\",\n",
+    "    \"propertyReferences\": [\n",
+    "        {\n",
+    "            \"type\": \"device\",\n",
+    "            \"instance\":  101014,\n",
+    "            \"property\": \"objectName\",\n",
+    "            \"arrayIndex\": -1\n",
+    "        },\n",
+    "        {\n",
+    "            \"type\": \"device\",\n",
+    "            \"instance\":  101014,\n",
+    "            \"property\": \"systemStatus\",\n",
+    "            \"arrayIndex\": -1\n",
+    "        },\n",
+    "        {\n",
+    "            \"type\": \"analogInput\",\n",
+    "            \"instance\": 103,\n",
+    "            \"property\": \"objectName\",\n",
+    "            \"arrayIndex\": -1\n",
+    "        },\n",
+    "        {\n",
+    "            \"type\": \"analogInput\",\n",
+    "            \"instance\": 103,\n",
+    "            \"property\": \"presentValue\",\n",
+    "            \"arrayIndex\": -1\n",
+    "        },\n",
+    "        {\n",
+    "            \"type\": \"analogInput\",\n",
+    "            \"instance\": 104,\n",
+    "            \"property\": \"objectName\",\n",
+    "            \"arrayIndex\": -1\n",
+    "        },\n",
+    "        {\n",
+    "            \"type\": \"analogInput\",\n",
+    "            \"instance\": 104,\n",
+    "            \"property\": \"presentValue\",\n",
+    "            \"arrayIndex\": -1\n",
+    "        }\n",
+    "    ]\n",
+    "}"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "C:\\Users\\bfowler\\AppData\\Local\\Continuum\\anaconda3\\lib\\site-packages\\urllib3\\connectionpool.py:847: InsecureRequestWarning: Unverified HTTPS request is being made. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#ssl-warnings\n",
+      "  InsecureRequestWarning)\n"
+     ]
+    }
+   ],
+   "source": [
+    "rsp = requests.post(endpoint+api_path+read_prop_mult, json=params, headers=headers, verify=False)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "response = rsp.json()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 14,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# json object parsing for Hot water supply temp\n",
+    "for n_resp in response:\n",
+    "    if n_resp['property'] == \"objectName\":\n",
+    "        device_name = n_resp['value']\n",
+    "    if n_resp['property'] == \"systemStatus\":\n",
+    "        device_status = n_resp['value']\n",
+    "    if n_resp['instance'] == 103:\n",
+    "        hws_value = n_resp['value']\n",
+    "    if (n_resp['instance'] == 103) & (n_resp['property'] == \"objectName\"):\n",
+    "        hws_point_name = n_resp['value']"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "payload ={  \n",
+    "    \"equip.point.name\": hws_point_name,\n",
+    "    \"equip.ip\": equip_ip,\n",
+    "    equip + device_name + \".type\" : \"numeric\",\n",
+    "    equip + device_name + \".dis\" : \"Hot water supply temp\",\n",
+    "    equip + device_name + \".unit\": \"F\",\n",
+    "    equip + device_name + \".equipRef\" : device_name,\n",
+    "    equip + device_name + \".siteRef\": building,\n",
+    "    equip + device_name + \".value\": float(hws_value),\n",
+    "    equip + device_name + \".status\": device_status,\n",
+    "    \"@timestamp\": timestamp,\n",
+    "    equip + device_name + \".tags\":  [\"hot\", \"water\", \"supply\", \"sensor\"]\n",
+    "    }"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 154,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "json_str = json.dumps(payload)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 74,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "elastic_index ={\n",
+    "    \"settings\" : {\n",
+    "        \"number_of_shards\" : 3,\n",
+    "        \"number_of_replicas\":1\n",
+    "    },\n",
+    "    \"mappings\" : {\n",
+    "            \"properties\" : {\n",
+    "                \"equip.point.name\":{\"type\": \"keyword\"},\n",
+    "                \"equip.ip\": {\"type\": \"ip\"},\n",
+    "                \"equip.point.type\" : { \"type\" : \"keyword\" },\n",
+    "                \"equip.point.dis\" : {\"type\" : \"keyword\"},\n",
+    "                \"equip.point.unit\": {\"type\": \"keyword\"},\n",
+    "                \"equip.point.equipRef\" : {\"type\": \"keyword\"},\n",
+    "                \"equip.point.siteRef\": {\"type\": \"text\"},\n",
+    "                \"equip.point.value\": {\"type\": \"float\"},\n",
+    "                \"equip.point.status\": {\"type\": \"text\"},\n",
+    "                \"@timestamp\": {\"type\": \"date\"},\n",
+    "                \"equip.point.tags\":  []\n",
+    "            }\n",
+    "            \n",
+    "    }\n",
+    "}"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 137,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "elastic = Elasticsearch(hosts=[elastic_url])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 138,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "elastic_response = elastic.indices.create(\n",
+    "    index=elastic_index_name,\n",
+    "    body=elastic_index,\n",
+    "    ignore=400 # ignore 400 already exists code\n",
+    ")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 139,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "{'acknowledged': True,\n",
+       " 'shards_acknowledged': True,\n",
+       " 'index': 'equip_28_10_2019'}"
+      ]
+     },
+     "execution_count": 139,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "elastic_response"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 155,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "{'_index': 'equip_28_10_2019',\n",
+       " '_type': '_doc',\n",
+       " '_id': '4',\n",
+       " '_version': 1,\n",
+       " 'result': 'created',\n",
+       " '_shards': {'total': 2, 'successful': 1, 'failed': 0},\n",
+       " '_seq_no': 2,\n",
+       " '_primary_term': 1}"
+      ]
+     },
+     "execution_count": 155,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "elastic.index(index='equip_28_10_2019', id=4, body=json.loads(json_str))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 156,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "{'_index': 'equip_28_10_2019',\n",
+       " '_type': '_doc',\n",
+       " '_id': '4',\n",
+       " '_version': 1,\n",
+       " '_seq_no': 2,\n",
+       " '_primary_term': 1,\n",
+       " 'found': True,\n",
+       " '_source': {'equip.point.name': 'HwSupTemp',\n",
+       "  'equip.ip': '10.1.101.14',\n",
+       "  'equip.TCP_37.type': 'numeric',\n",
+       "  'equip.TCP_37.dis': 'Hot water supply temp',\n",
+       "  'equip.TCP_37.unit': 'F',\n",
+       "  'equip.TCP_37.equipRef': 'TCP_37',\n",
+       "  'equip.TCP_37.siteRef': 'San Jose City Hall',\n",
+       "  'equip.TCP_37.value': 178.44582,\n",
+       "  'equip.TCP_37.status': 'Operational',\n",
+       "  '@timestamp': '2019-10-28T10:41:28.795885',\n",
+       "  'equip.TCP_37.tags': ['hot', 'water', 'supply', 'sensor']}}"
+      ]
+     },
+     "execution_count": 156,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "elastic.get(index='equip_28_10_2019', id=4)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "datetime.date(2019, 10, 28)"
+      ]
+     },
+     "execution_count": 4,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "today"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "today2 = date.today()\n",
+    "d2 = today.strftime(\"%d_%m_%Y\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "'28_10_2019'"
+      ]
+     },
+     "execution_count": 6,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "d2"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "datetime.date(2019, 10, 28)"
+      ]
+     },
+     "execution_count": 7,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "today2"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "{'equip.point.name': 'HwSupTemp',\n",
+       " 'equip.ip': '10.1.101.14',\n",
+       " 'equip.TCP_37.type': 'numeric',\n",
+       " 'equip.TCP_37.dis': 'Hot water supply temp',\n",
+       " 'equip.TCP_37.unit': 'F',\n",
+       " 'equip.TCP_37.equipRef': 'TCP_37',\n",
+       " 'equip.TCP_37.siteRef': 'San Jose City Hall',\n",
+       " 'equip.TCP_37.value': 179.60347,\n",
+       " 'equip.TCP_37.status': 'Operational',\n",
+       " '@timestamp': '2019-10-30T14:05:46.742948',\n",
+       " 'equip.TCP_37.tags': ['hot', 'water', 'supply', 'sensor']}"
+      ]
+     },
+     "execution_count": 16,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "payload"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.7.3"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
